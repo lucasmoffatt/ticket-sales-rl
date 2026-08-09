@@ -1,23 +1,42 @@
-### AL ###
-#Template for AL projects for Dynamics 365 Business Central
-#launch.json folder
+# Virtual environments
+.venv/
+venv/
+env/
+.env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Testing / tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# IDE / OS
+.idea/
 .vscode/
-#Cache folder
-.alcache/
-#Symbols folder
-.alpackages/
-#Snapshots folder
-.snapshots/
-#Testing Output folder
-.output/
-#Extension App-file
-*.app
-#Rapid Application Development File
-rad.json
-#Translation Base-file
-*.g.xlf
-#License-files
-*.bclicense
-*.flf
-#Test results file
-TestResults.xml
+*.swp
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Regeneratable evaluation outputs (recreate with evaluate_q_learning.py)
+data/*
+!data/.gitkeep
+
+# Heavy / binary model artifacts (keep the Q-table JSON)
+*.zip
+models/*
+!models/q_learning_agent.json
