@@ -1,7 +1,5 @@
 # Q-Learning Dynamic Pricing Agent
 
-A beginner-friendly, recruiter-quality reinforcement learning project that trains a **tabular Q-learning agent** to dynamically price a fixed inventory of tickets over a limited selling period in order to maximize total revenue.
-
 Stack: **Python · NumPy · Pandas · Gymnasium · Plotly · Streamlit · pytest**
 
 ---
@@ -19,8 +17,6 @@ Pricing is a **sequential decision** problem under uncertainty:
 - The best price depends on *state* (tickets left, time left), not a single static rule.
 
 That maps naturally to RL: observe state → choose price → receive revenue → transition.
-
-This project focuses specifically on **tabular Q-learning** so every concept (Q-values, epsilon-greedy, Bellman updates) stays inspectable and interview-friendly.
 
 ## 3. System diagram
 
