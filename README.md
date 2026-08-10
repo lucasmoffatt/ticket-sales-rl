@@ -1,4 +1,4 @@
-# Q-Learning Dynamic Pricing Agent
+# RL Ticket Pricing
 
 Stack: **Python · NumPy · Pandas · Gymnasium · Plotly · Streamlit · pytest**
 
@@ -27,73 +27,147 @@ flowchart LR
 ### Setup
 
 ```bash
-cd rl-dynamic-pricing
+cd rl-ticket-pricing
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+PYTHONPATH=src streamlit run app/streamlit_app.py
 ```
 
-### Tests
+Change inventory, selling days, and demand level, then watch price, inventory, and cumulative revenue evolve over a simulated selling season.
 
-```bash
-pytest -q
+---
+
+## How it works
+
+```text
+Environment → State → Q-Learning Agent → Price → Demand → Revenue → New State
 ```
 
-### Train
+Each day, the agent observes the market, chooses a ticket price, customers respond (with randomness), revenue is collected, and the season continues until tickets sell out or the event date arrives.
 
-```bash
-PYTHONPATH=src python scripts/train_q_learning.py --episodes 3000
+### State
+
+Normalized features (no future / look-ahead information):
+
+
+| Feature           | Meaning               |
+| ----------------- | --------------------- |
+| Tickets remaining | Inventory pressure    |
+| Days remaining    | Time pressure         |
+| Previous price    | Last pricing decision |
+| Previous sales    | Recent demand signal  |
+
+
+For tabular Q-learning, inventory and time are binned into **Low / Medium / High** and **Early / Middle / Late**.
+
+### Actions
+
+Discrete prices: **$50 · $75 · $100 · $125 · $150 · $175 · $200**
+
+### Reward
+
+```text
+reward = daily revenue = price × tickets sold
 ```
 
-### Evaluate + charts
+Optional terminal penalty for unsold inventory at the event date (configurable).
+
+### Demand model
+
+Customer demand is simulated with a Poisson process whose expected value falls as price rises and can rise slightly as the event approaches. Sales are always capped by remaining inventory.
+
+Details: `[src/simulation/demand.py](src/simulation/demand.py)`
+
+---
+
+## Q-learning approach
+
+Q-learning is implemented from scratch so the learning process stays easy to inspect:
+
+- **Q-table** stores the estimated value of each (state, price) pair  
+- **Epsilon-greedy** balances trying new prices vs using the best-known price  
+- **Bellman update:**  
+`Q(s,a) ← Q(s,a) + α [ r + γ max Q(s',a') − Q(s,a) ]`
+
+Trained model: `[models/q_learning_agent.json](models/q_learning_agent.json)`  
+Agent code: `[src/agents/q_learning_agent.py](src/agents/q_learning_agent.py)`
+
+---
+
+## Results
+
+**Setup:** 100 tickets · 20 selling days · 3,000 training episodes · 100 evaluation episodes
+
+
+| Metric            | Q-Learning   |
+| ----------------- | ------------ |
+| Avg total revenue | **~$16,758** |
+| Median revenue    | ~$16,812     |
+| Avg sell-through  | ~98.5%       |
+| Avg selling price | ~$170        |
+| Sell-out rate     | ~68%         |
+
+
+### What the agent learned
+
+- Holds **higher prices** when inventory is comfortable  
+- Lowers prices when many tickets remain late in the window  
+- Optimizes for **revenue quality**, not just selling every ticket
+
+The policy heatmap (`data/policy_heatmap.html`) shows preferred price by inventory × time remaining.
+
+> Demand is synthetic. These results show how the agent behaves in the simulator — they are not claims about a live ticketing market.
+
+Regenerate metrics and charts:
 
 ```bash
 PYTHONPATH=src python scripts/evaluate_q_learning.py --episodes 100
 ```
 
-Outputs: `data/evaluation_summary.csv`, policy heatmap, training curve, episode traces.
+---
 
-### Streamlit dashboard
+## Structure
 
-```bash
-PYTHONPATH=src streamlit run app/streamlit_app.py
-```
-
-Controls: inventory, selling days, demand level, terminal penalty.  
-Runs the trained **Q-learning** policy and shows revenue metrics + interactive charts.
-
-### Random episode smoke test (environment only)
-
-```bash
-PYTHONPATH=src python scripts/run_random_episode.py
+```text
+rl-ticket-pricing/
+├── app/streamlit_app.py          # Interactive demo
+├── scripts/
+│   ├── train_q_learning.py       # Train the agent
+│   ├── evaluate_q_learning.py    # Metrics + charts
+│   └── run_random_episode.py     # Environment smoke test
+├── src/
+│   ├── environment/              # Custom Gymnasium env
+│   ├── simulation/               # Demand model
+│   ├── agents/                   # Q-learning from scratch
+│   ├── evaluation/               # Metrics & episode runner
+│   └── visualization/            # Plotly charts
+├── models/q_learning_agent.json  # Trained Q-table
+├── notebooks/                    # Exploration & analysis
+└── tests/                        # Environment, demand, agent tests
 ```
 
 ---
 
-## Project structure
+## Quick start
 
-```text
-rl-dynamic-pricing/
-├── README.md
-├── requirements.txt
-├── app/streamlit_app.py
-├── scripts/
-│   ├── run_random_episode.py
-│   ├── train_q_learning.py
-│   └── evaluate_q_learning.py
-├── src/
-│   ├── environment/dynamic_pricing_env.py
-│   ├── simulation/demand.py
-│   ├── agents/q_learning_agent.py
-│   ├── evaluation/
-│   └── visualization/
-├── models/q_learning_agent.json
-├── data/                         # evaluation outputs (generated)
-├── notebooks/
-│   ├── 01_environment_exploration.ipynb
-│   ├── 02_q_learning_analysis.ipynb
-│   └── 03_q_learning_evaluation.ipynb
-└── tests/
+```bash
+cd rl-ticket-pricing
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# Verify
+pytest -q
+
+# Train (optional — a trained model is already included)
+PYTHONPATH=src python scripts/train_q_learning.py --episodes 3000
+
+# Evaluate
+PYTHONPATH=src python scripts/evaluate_q_learning.py --episodes 100
+
+# Demo
+PYTHONPATH=src streamlit run app/streamlit_app.py
 ```
 ## 3. State space
 
@@ -183,3 +257,27 @@ Re-run evaluation to regenerate exact numbers and charts in [`data/`](data/).
 
 - Demand models trained from public event data
 - Multi-event / seat-tier extensions
+After evaluation, open charts in `data/`:
+
+- `q_learning_training.html` — learning curve  
+- `policy_heatmap.html` — learned pricing policy  
+- `price_over_time.html` / `inventory_over_time.html` / `cumulative_revenue.html`
+
+---
+
+## Limitations
+
+- Synthetic demand (not fitted to real sales data)
+- Simplified customer behavior
+- Discrete prices and coarse state bins
+- Single event / single product
+
+---
+
+## Next steps
+
+- Find a better source for training data  
+- Try a finer state representation or deep RL (e.g. DQN)  
+- Extend to multi-tier seating or multi-event inventory  
+- Move from discrete price levels to continuous pricing  
+
