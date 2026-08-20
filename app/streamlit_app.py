@@ -1,18 +1,23 @@
 """
-Streamlit dashboard for the Q-learning dynamic pricing agent.
+Streamlit dashboard for the dynamic pricing agents.
 
 Run from the project root:
 
     PYTHONPATH=src streamlit run app/streamlit_app.py
+
+or simply:
+
+    ./scripts/app.sh
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import streamlit as st
 
+from agents.dqn_agent import DQNAgent
 from agents.q_learning_agent import QLearningAgent
 from environment.dynamic_pricing_env import DynamicPricingEnv
 from evaluation.evaluator import run_episode
@@ -26,10 +31,14 @@ from visualization.plots import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 Q_MODEL_PATH = PROJECT_ROOT / "models" / "q_learning_agent.json"
+DQN_MODEL_PATH = PROJECT_ROOT / "models" / "dqn_agent"
+
+Q_STRATEGY = "Q-Learning (table)"
+DQN_STRATEGY = "DQN (neural network)"
 
 
 st.set_page_config(
-    page_title="Q-Learning Dynamic Pricing",
+    page_title="Dynamic Pricing Agents",
     page_icon=None,
     layout="wide",
 )
@@ -42,17 +51,36 @@ def load_q_agent() -> Optional[QLearningAgent]:
     return None
 
 
+@st.cache_resource
+def load_dqn_agent() -> Optional[DQNAgent]:
+    if Path(f"{DQN_MODEL_PATH}.keras").exists():
+        return DQNAgent.load(DQN_MODEL_PATH)
+    return None
+
+
 def main() -> None:
-    st.title("Q-Learning Dynamic Pricing Agent")
+    st.title("Dynamic Pricing Agents")
     st.caption(
-        "Simulate a trained tabular Q-learning policy over a fixed ticket inventory "
-        "and selling window."
+        "Simulate a trained pricing policy over a fixed ticket inventory and "
+        "selling window. Compare a from-scratch Q-learning table against a "
+        "Keras Deep Q-Network."
     )
 
-    agent = load_q_agent()
+    q_agent = load_q_agent()
+    dqn_agent = load_dqn_agent()
+
+    available: dict[str, Any] = {}
+    if q_agent is not None:
+        available[Q_STRATEGY] = q_agent
+    if dqn_agent is not None:
+        available[DQN_STRATEGY] = dqn_agent
 
     with st.sidebar:
         st.header("Simulation settings")
+        if available:
+            strategy = st.selectbox("Pricing strategy", list(available.keys()))
+        else:
+            strategy = None
         initial_inventory = st.slider("Initial ticket inventory", 20, 300, 100, 10)
         selling_days = st.slider("Selling days", 5, 60, 20, 1)
         demand_level = st.slider("Demand level", 0.2, 2.5, 1.0, 0.1)
@@ -62,28 +90,35 @@ def main() -> None:
         seed = st.number_input("Random seed", min_value=0, value=42, step=1)
         run_button = st.button("Run simulation", type="primary")
 
-        if agent is None:
-            st.error(
-                "No Q-learning model found.\n\n"
-                "Train one with:\n"
+        if q_agent is None:
+            st.warning(
+                "No Q-learning model found. Train one with:\n"
                 "`PYTHONPATH=src python scripts/train_q_learning.py`"
             )
+        if dqn_agent is None:
+            st.warning(
+                "No DQN model found. Train one with:\n"
+                "`PYTHONPATH=src python scripts/train_dqn.py`"
+            )
 
-    if agent is None:
+    if strategy is None:
+        st.error("No trained models found. Train an agent, then reload this page.")
         return
+
+    agent = available[strategy]
 
     if not run_button:
         st.markdown(
-            """
+            f"""
             Use the sidebar to configure inventory, selling days, and demand,
             then click **Run simulation**.
 
-            The agent uses a **greedy Q-learning policy** (no exploration) loaded from
-            `models/q_learning_agent.json`.
+            Selected agent: **{strategy}** (greedy policy, no exploration).
             """
         )
-        st.subheader("Learned pricing policy")
-        st.plotly_chart(plot_policy_heatmap(agent), use_container_width=True)
+        if strategy == Q_STRATEGY:
+            st.subheader("Learned pricing policy")
+            st.plotly_chart(plot_policy_heatmap(agent), use_container_width=True)
         return
 
     env = DynamicPricingEnv(
@@ -100,7 +135,7 @@ def main() -> None:
     result, trace = run_episode(
         env,
         action_fn,
-        strategy_name="Q-Learning",
+        strategy_name=strategy,
         episode_index=0,
         seed=int(seed),
         record_trace=True,
@@ -122,8 +157,9 @@ def main() -> None:
     with c3:
         st.plotly_chart(plot_cumulative_revenue(trace), use_container_width=True)
 
-    st.subheader("Learned pricing policy")
-    st.plotly_chart(plot_policy_heatmap(agent), use_container_width=True)
+    if strategy == Q_STRATEGY:
+        st.subheader("Learned pricing policy")
+        st.plotly_chart(plot_policy_heatmap(agent), use_container_width=True)
 
 
 if __name__ == "__main__":
