@@ -36,7 +36,9 @@ htmlcov/
 data/*
 !data/.gitkeep
 
-# Heavy / binary model artifacts (keep the Q-table JSON)
+# Heavy / binary model artifacts (keep the trained agents we ship)
 *.zip
 models/*
 !models/q_learning_agent.json
+!models/dqn_agent.keras
+!models/dqn_agent.json

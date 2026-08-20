@@ -1,5 +1,9 @@
 """
-Evaluate the trained tabular Q-learning agent and write charts/metrics.
+Evaluate the trained pricing agents and write charts/metrics.
+
+By default this compares the tabular Q-learning agent against the Keras DQN
+agent under identical seeds. If the DQN model has not been trained yet, the
+script still runs and evaluates Q-learning alone.
 
 Usage:
 
@@ -11,12 +15,13 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import List
 
 import pandas as pd
 
+from agents.dqn_agent import DQNAgent
 from agents.q_learning_agent import QLearningAgent
-from environment.dynamic_pricing_env import DynamicPricingEnv
-from evaluation.evaluator import evaluate_q_learning
+from evaluation.evaluator import GreedyAgent, compare_agents
 from evaluation.metrics import results_to_frame, summarize_results
 from visualization.plots import (
     plot_cumulative_revenue,
@@ -32,38 +37,16 @@ from visualization.plots import (
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate Q-learning pricing agent")
+    parser = argparse.ArgumentParser(description="Evaluate and compare pricing agents")
     parser.add_argument("--episodes", type=int, default=100)
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--inventory", type=int, default=100)
     parser.add_argument("--days", type=int, default=20)
     parser.add_argument("--demand-level", type=float, default=1.0)
     parser.add_argument("--q-model", type=str, default="models/q_learning_agent.json")
-    parser.add_argument("--train-if-missing", action="store_true", default=True)
-    parser.add_argument(
-        "--no-train-if-missing", action="store_false", dest="train_if_missing"
-    )
-    parser.add_argument("--q-episodes", type=int, default=2000)
+    parser.add_argument("--dqn-model", type=str, default="models/dqn_agent")
     parser.add_argument("--output-dir", type=str, default="data")
     return parser.parse_args()
-
-
-def ensure_q_agent(path: str, env_kwargs: dict, episodes: int, seed: int) -> QLearningAgent:
-    model_path = Path(path)
-    if model_path.exists():
-        print(f"Loading Q-learning agent from {path}")
-        return QLearningAgent.load(path)
-
-    print(f"No Q-learning model at {path}; training for {episodes} episodes...")
-    env = DynamicPricingEnv(**env_kwargs, seed=seed)
-    agent = QLearningAgent(
-        n_actions=env.action_space.n,
-        price_levels=env.price_levels,
-        seed=seed,
-    )
-    agent.train(env, n_episodes=episodes, seed=seed)
-    agent.save(path)
-    return agent
 
 
 def main() -> None:
@@ -77,16 +60,31 @@ def main() -> None:
         "demand_level": args.demand_level,
     }
 
-    if not args.train_if_missing and not Path(args.q_model).exists():
+    agents: List[GreedyAgent] = []
+
+    if not Path(args.q_model).exists():
         raise FileNotFoundError(
-            f"Missing model at {args.q_model}. Train with scripts/train_q_learning.py"
+            f"Missing Q-learning model at {args.q_model}. "
+            "Train it with scripts/train_q_learning.py"
+        )
+    q_agent = QLearningAgent.load(args.q_model)
+    agents.append(q_agent)
+    print(f"Loaded Q-learning agent from {args.q_model}")
+
+    dqn_agent = None
+    if Path(f"{args.dqn_model}.keras").exists():
+        dqn_agent = DQNAgent.load(args.dqn_model)
+        agents.append(dqn_agent)
+        print(f"Loaded DQN agent from {args.dqn_model}.keras")
+    else:
+        print(
+            f"No DQN model at {args.dqn_model}.keras; evaluating Q-learning only. "
+            "Train the DQN with scripts/train_dqn.py to compare."
         )
 
-    agent = ensure_q_agent(args.q_model, env_kwargs, args.q_episodes, args.seed)
-
-    print(f"Evaluating Q-learning over {args.episodes} episodes...")
-    results, trace = evaluate_q_learning(
-        agent,
+    print(f"Evaluating {len(agents)} agent(s) over {args.episodes} episodes each...")
+    results, traces = compare_agents(
+        agents,
         n_episodes=args.episodes,
         env_kwargs=env_kwargs,
         base_seed=args.seed,
@@ -99,26 +97,37 @@ def main() -> None:
     episode_df.to_csv(out / "evaluation_episodes.csv", index=False)
 
     print("\n=== Summary ===")
-    pd.set_option("display.width", 120)
+    pd.set_option("display.width", 140)
     pd.set_option("display.max_columns", 20)
     print(summary.to_string(index=False, float_format=lambda x: f"{x:,.2f}"))
 
     save_figure(plot_revenue_summary(results), str(out / "revenue_summary.html"))
     save_figure(plot_sellthrough_summary(results), str(out / "sellthrough_summary.html"))
     save_figure(plot_revenue_distribution(results), str(out / "revenue_distribution.html"))
-    save_figure(plot_policy_heatmap(agent), str(out / "policy_heatmap.html"))
+    save_figure(plot_policy_heatmap(q_agent), str(out / "policy_heatmap.html"))
 
-    if trace is not None:
-        save_figure(plot_price_over_time(trace), str(out / "price_over_time.html"))
-        save_figure(plot_inventory_over_time(trace), str(out / "inventory_over_time.html"))
+    # Per-episode trajectory charts for each agent that produced a trace.
+    for name, trace in traces.items():
+        slug = name.lower().replace(" ", "_").replace("-", "_")
+        save_figure(plot_price_over_time(trace), str(out / f"price_over_time_{slug}.html"))
         save_figure(
-            plot_cumulative_revenue(trace), str(out / "cumulative_revenue.html")
+            plot_inventory_over_time(trace),
+            str(out / f"inventory_over_time_{slug}.html"),
+        )
+        save_figure(
+            plot_cumulative_revenue(trace),
+            str(out / f"cumulative_revenue_{slug}.html"),
         )
 
-    if agent.training_rewards:
+    if q_agent.training_rewards:
         save_figure(
-            plot_training_rewards(agent.training_rewards),
+            plot_training_rewards(q_agent.training_rewards, title="Q-Learning training reward"),
             str(out / "q_learning_training.html"),
+        )
+    if dqn_agent is not None and dqn_agent.training_rewards:
+        save_figure(
+            plot_training_rewards(dqn_agent.training_rewards, title="DQN training reward"),
+            str(out / "dqn_training.html"),
         )
 
     print(f"\nWrote tables and charts to {out}/")

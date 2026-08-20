@@ -1,26 +1,45 @@
 """
-Evaluation helpers for the tabular Q-learning pricing agent.
+Evaluation helpers for the pricing agents (tabular Q-learning and DQN).
 
 Fairness notes
 --------------
 - Fixed environment parameters across evaluation episodes.
 - Deterministic (greedy) action selection — no exploration.
 - Episode k uses seed = base_seed + k for reproducibility.
+- When comparing agents, every agent sees the exact same seeds, so differences
+  in revenue reflect the policy, not luck.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence
 
 import numpy as np
 
-from agents.q_learning_agent import QLearningAgent
 from environment.dynamic_pricing_env import DynamicPricingEnv
 from evaluation.metrics import EpisodeResult, compute_episode_result, summarize_results
 
 
 ActionFn = Callable[[np.ndarray, Dict[str, Any]], int]
+
+
+class GreedyAgent(Protocol):
+    """Minimal interface an agent needs to be evaluated.
+
+    Both ``QLearningAgent`` and ``DQNAgent`` satisfy this, which is why the same
+    evaluation loop works for either one.
+    """
+
+    name: str
+
+    def select_action(
+        self,
+        observation: np.ndarray,
+        info: Optional[Dict[str, Any]] = None,
+        *,
+        explore: bool = True,
+    ) -> int: ...
 
 
 @dataclass
@@ -89,17 +108,19 @@ def run_episode(
     return result, trace
 
 
-def evaluate_q_learning(
-    agent: QLearningAgent,
+def evaluate_agent(
+    agent: GreedyAgent,
     *,
     n_episodes: int = 100,
     env_kwargs: Optional[Dict[str, Any]] = None,
     base_seed: int = 123,
     record_first_trace: bool = True,
+    strategy_name: Optional[str] = None,
 ) -> tuple[List[EpisodeResult], Optional[EpisodeTrace]]:
-    """Evaluate a greedy Q-learning policy over many episodes."""
+    """Evaluate a greedy policy over many episodes (works for any agent)."""
     kwargs = dict(env_kwargs or {})
     env = DynamicPricingEnv(**kwargs)
+    label = strategy_name or agent.name
 
     def action_fn(obs: np.ndarray, info: Dict[str, Any]) -> int:
         return agent.select_action(obs, info, explore=False)
@@ -112,7 +133,7 @@ def evaluate_q_learning(
         result, trace = run_episode(
             env,
             action_fn,
-            strategy_name=agent.name,
+            strategy_name=label,
             episode_index=ep,
             seed=seed,
             record_trace=record_first_trace and ep == 0,
@@ -122,6 +143,58 @@ def evaluate_q_learning(
             first_trace = trace
 
     return results, first_trace
+
+
+def evaluate_q_learning(
+    agent: GreedyAgent,
+    *,
+    n_episodes: int = 100,
+    env_kwargs: Optional[Dict[str, Any]] = None,
+    base_seed: int = 123,
+    record_first_trace: bool = True,
+) -> tuple[List[EpisodeResult], Optional[EpisodeTrace]]:
+    """Backward-compatible alias for :func:`evaluate_agent`."""
+    return evaluate_agent(
+        agent,
+        n_episodes=n_episodes,
+        env_kwargs=env_kwargs,
+        base_seed=base_seed,
+        record_first_trace=record_first_trace,
+    )
+
+
+def compare_agents(
+    agents: Sequence[GreedyAgent],
+    *,
+    n_episodes: int = 100,
+    env_kwargs: Optional[Dict[str, Any]] = None,
+    base_seed: int = 123,
+    record_first_trace: bool = True,
+) -> tuple[List[EpisodeResult], Dict[str, EpisodeTrace]]:
+    """
+    Evaluate several agents under identical seeds and pool their results.
+
+    Returns the combined list of per-episode results (each tagged with the
+    agent's ``name``) plus a dict mapping agent name -> its first-episode trace.
+    ``summarize_results`` groups the combined list by strategy for a side-by-side
+    comparison table.
+    """
+    combined: List[EpisodeResult] = []
+    traces: Dict[str, EpisodeTrace] = {}
+
+    for agent in agents:
+        results, trace = evaluate_agent(
+            agent,
+            n_episodes=n_episodes,
+            env_kwargs=env_kwargs,
+            base_seed=base_seed,
+            record_first_trace=record_first_trace,
+        )
+        combined.extend(results)
+        if trace is not None:
+            traces[agent.name] = trace
+
+    return combined, traces
 
 
 def summary_table(results: List[EpisodeResult]):

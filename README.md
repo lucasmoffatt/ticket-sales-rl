@@ -1,128 +1,135 @@
 # RL Ticket Pricing
 
-Stack: **Python · NumPy · Pandas · Gymnasium · Plotly · Streamlit · pytest**
+**Reinforcement learning agents that learn how to price event tickets over time to maximize revenue.**
+
+The project builds a small simulated ticket market and trains two agents to set prices day by day: a from-scratch tabular **Q-learning** agent and a **Deep Q-Network (DQN)** built with TensorFlow/Keras. The two are then compared under identical conditions.
+
+Stack: **Python · NumPy · Pandas · Gymnasium · TensorFlow/Keras · Plotly · Streamlit · pytest**
 
 ---
 
-## 1. System diagram
+## The idea
 
-```text
-Environment → State → Q-Learning Agent → Price → Demand → Revenue → New State
-     ↑                                                                  |
-     └────────────────────── reward / next obs ─────────────────────────┘
-```
+Ticket sellers face a trade-off every day before an event:
+
+- Price too high, and demand drops so seats go unsold.
+- Price too low, and inventory sells out early, leaving revenue on the table.
+
+The best price depends on how many tickets are left and how much time remains. That makes this a sequential decision problem under uncertainty, which is a natural fit for reinforcement learning.
+
+## System diagram
 
 ```mermaid
 flowchart LR
     Env[Environment] --> State[State]
-    State --> Agent[QLearningAgent]
+    State --> Agent[Q-Learning or DQN]
     Agent --> Price[Price]
     Price --> Demand[Demand]
     Demand --> Revenue[Revenue]
     Revenue --> NewState[New State]
     NewState --> Env
 ```
-## 2. How to run
 
-### Setup
+Each day the agent observes the market, chooses a ticket price, customers respond (with randomness), revenue is collected, and the season continues until tickets sell out or the event date arrives.
+
+---
+
+## How to run
 
 ```bash
 cd rl-ticket-pricing
-python3 -m venv .venv
+./scripts/setup.sh                 # create .venv and install dependencies
 source .venv/bin/activate
-pip install -r requirements.txt
+
+pytest -q                          # run the test suite
+
+./scripts/train.sh --episodes 500  # train both agents
+./scripts/evaluate.sh --episodes 100
+./scripts/app.sh                   # launch the interactive dashboard
+```
+
+Prefer plain Python? Every script has a direct equivalent, for example:
+
+```bash
+PYTHONPATH=src python scripts/train_dqn.py --episodes 500
 PYTHONPATH=src streamlit run app/streamlit_app.py
 ```
 
-Change inventory, selling days, and demand level, then watch price, inventory, and cumulative revenue evolve over a simulated selling season.
+Trained models are already included, so you can jump straight to evaluation or the dashboard.
 
 ---
 
-## How it works
+## State, actions, and reward
+
+**State** — normalized features with no future / look-ahead information:
+
+| Index | Feature | Meaning |
+|------:|---------|---------|
+| 0 | tickets remaining / initial inventory | Stock left |
+| 1 | days remaining / selling days | Time left |
+| 2 | previous price / max price | Last price charged |
+| 3 | previous sales / initial inventory | Recent demand signal |
+
+**Actions** — discrete prices: **$50 · $75 · $100 · $125 · $150 · $175 · $200**
+
+**Reward** — daily revenue, with an optional penalty for leftover inventory:
 
 ```text
-Environment → State → Q-Learning Agent → Price → Demand → Revenue → New State
+reward = price × tickets_sold
+if days == 0 and unsold > 0:
+    reward -= terminal_inventory_penalty × unsold   # optional, default 0
 ```
 
-Each day, the agent observes the market, chooses a ticket price, customers respond (with randomness), revenue is collected, and the season continues until tickets sell out or the event date arrives.
-
-### State
-
-Normalized features (no future / look-ahead information):
-
-
-| Feature           | Meaning               |
-| ----------------- | --------------------- |
-| Tickets remaining | Inventory pressure    |
-| Days remaining    | Time pressure         |
-| Previous price    | Last pricing decision |
-| Previous sales    | Recent demand signal  |
-
-
-For tabular Q-learning, inventory and time are binned into **Low / Medium / High** and **Early / Middle / Late**.
-
-### Actions
-
-Discrete prices: **$50 · $75 · $100 · $125 · $150 · $175 · $200**
-
-### Reward
-
-```text
-reward = daily revenue = price × tickets sold
-```
-
-Optional terminal penalty for unsold inventory at the event date (configurable).
-
-### Demand model
-
-Customer demand is simulated with a Poisson process whose expected value falls as price rises and can rise slightly as the event approaches. Sales are always capped by remaining inventory.
-
-Details: `[src/simulation/demand.py](src/simulation/demand.py)`
+**Demand** — simulated with a Poisson process whose mean falls as price rises and can rise slightly as the event approaches. Sales are always capped by remaining inventory. See [`src/simulation/demand.py`](src/simulation/demand.py).
 
 ---
 
-## Q-learning approach
+## The two agents
 
-Q-learning is implemented from scratch so the learning process stays easy to inspect:
+### Tabular Q-learning (from scratch)
 
-- **Q-table** stores the estimated value of each (state, price) pair  
-- **Epsilon-greedy** balances trying new prices vs using the best-known price  
-- **Bellman update:**  
-`Q(s,a) ← Q(s,a) + α [ r + γ max Q(s',a') − Q(s,a) ]`
+The table cannot use raw continuous numbers, so inventory and time are binned into **Low / Medium / High** and **Early / Middle / Late** (9 states total). The learning rule is the classic Bellman / temporal-difference update:
 
-Trained model: `[models/q_learning_agent.json](models/q_learning_agent.json)`  
-Agent code: `[src/agents/q_learning_agent.py](src/agents/q_learning_agent.py)`
+```text
+Q(s,a) ← Q(s,a) + α [ r + γ max Q(s',a') − Q(s,a) ]
+```
+
+It is fully inspectable: you can print the table and read off the preferred price for any situation. See [`src/agents/q_learning_agent.py`](src/agents/q_learning_agent.py).
+
+### Deep Q-Network (TensorFlow/Keras)
+
+The DQN replaces the table with a small neural network that reads the **full four-number observation**, so it can react to detail the bins throw away. It uses the same reinforcement-learning idea plus three standard stabilizers:
+
+- **Replay buffer** — trains on random mini-batches of past transitions to break correlation between consecutive days.
+- **Target network** — a slowly updated copy provides stable learning targets.
+- **Epsilon-greedy** — the same explore-vs-exploit balance as Q-learning.
+
+See [`src/agents/dqn_agent.py`](src/agents/dqn_agent.py).
 
 ---
 
 ## Results
 
-**Setup:** 100 tickets · 20 selling days · 3,000 training episodes · 100 evaluation episodes
+Both agents were evaluated on 100 fresh seasons using the **same seeds** (100 tickets, 20 selling days), so differences reflect the strategy rather than luck.
 
+| Metric | Q-Learning (table) | DQN (neural network) |
+| --- | ---: | ---: |
+| Average total revenue | ~$16,758 | **~$17,448** |
+| Median total revenue | ~$16,813 | ~$17,775 |
+| Average selling price | ~$170 | ~$190 |
+| Average sell-through | ~98.5% | ~92.0% |
+| Sell-out rate | ~68% | ~16% |
 
-| Metric            | Q-Learning   |
-| ----------------- | ------------ |
-| Avg total revenue | **~$16,758** |
-| Median revenue    | ~$16,812     |
-| Avg sell-through  | ~98.5%       |
-| Avg selling price | ~$170        |
-| Sell-out rate     | ~68%         |
+Reading the full continuous state, the DQN learned a higher-price strategy that earns a few percent more revenue on average, accepting a few more unsold seats instead of discounting to sell everything. Q-learning is more conservative and sells through more reliably.
 
+The policy heatmap (`data/policy_heatmap.html`) shows the Q-learning agent's preferred price by inventory and time remaining.
 
-### What the agent learned
+> Demand is synthetic, so these numbers describe behaviour in the simulator, not a live ticketing market.
 
-- Holds **higher prices** when inventory is comfortable  
-- Lowers prices when many tickets remain late in the window  
-- Optimizes for **revenue quality**, not just selling every ticket
-
-The policy heatmap (`data/policy_heatmap.html`) shows preferred price by inventory × time remaining.
-
-> Demand is synthetic. These results show how the agent behaves in the simulator — they are not claims about a live ticketing market.
-
-Regenerate metrics and charts:
+Regenerate all metrics and charts:
 
 ```bash
-PYTHONPATH=src python scripts/evaluate_q_learning.py --episodes 100
+./scripts/evaluate.sh --episodes 100
 ```
 
 ---
@@ -131,137 +138,28 @@ PYTHONPATH=src python scripts/evaluate_q_learning.py --episodes 100
 
 ```text
 rl-ticket-pricing/
-├── app/streamlit_app.py          # Interactive demo
+├── app/streamlit_app.py          # Interactive demo with an agent selector
 ├── scripts/
-│   ├── train_q_learning.py       # Train the agent
-│   ├── evaluate_q_learning.py    # Metrics + charts
+│   ├── setup.sh / train.sh / evaluate.sh / app.sh   # Bash workflow wrappers
+│   ├── train_q_learning.py       # Train the tabular agent
+│   ├── train_dqn.py              # Train the Keras DQN
+│   ├── evaluate_q_learning.py    # Compare agents, write metrics + charts
 │   └── run_random_episode.py     # Environment smoke test
 ├── src/
 │   ├── environment/              # Custom Gymnasium env
 │   ├── simulation/               # Demand model
-│   ├── agents/                   # Q-learning from scratch
+│   ├── agents/                   # Q-learning (from scratch) + DQN (Keras)
 │   ├── evaluation/               # Metrics & episode runner
 │   └── visualization/            # Plotly charts
-├── models/q_learning_agent.json  # Trained Q-table
+├── models/                       # Trained agents (Q-table JSON + DQN .keras/.json)
 ├── notebooks/                    # Exploration & analysis
-└── tests/                        # Environment, demand, agent tests
+├── tests/                        # Environment, demand, and agent tests
+└── .github/workflows/ci.yml      # Runs pytest on every push
 ```
 
----
+Testing and CI: `pytest` covers the environment rules, demand model, and both agents; a GitHub Actions workflow runs the suite automatically on every push.
 
-## Quick start
-
-```bash
-cd rl-ticket-pricing
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-# Verify
-pytest -q
-
-# Train (optional — a trained model is already included)
-PYTHONPATH=src python scripts/train_q_learning.py --episodes 3000
-
-# Evaluate
-PYTHONPATH=src python scripts/evaluate_q_learning.py --episodes 100
-
-# Demo
-PYTHONPATH=src streamlit run app/streamlit_app.py
-```
-## 3. State space
-
-Observation vector (normalized to `[0, 1]`, no look-ahead):
-
-| Index | Feature | Meaning |
-|------:|---------|---------|
-| 0 | tickets remaining / initial inventory | Stock left |
-| 1 | days remaining / selling days | Time left |
-| 2 | previous price / max price | Last price charged |
-| 3 | previous sales / initial inventory | Yesterday's sales |
-
-For tabular Q-learning, inventory and time are discretized into:
-
-- Inventory: **Low / Medium / High**
-- Time: **Early / Middle / Late**
-
-## 4. Action space
-
-Discrete prices: **$50, $75, $100, $125, $150, $175, $200**
-
-## 5. Reward function
-
-Default:
-
-```text
-reward = daily revenue = price × tickets_sold
-```
-
-Optional terminal penalty (configurable, default `0`):
-
-```text
-if days == 0 and unsold > 0:
-    reward -= terminal_inventory_penalty × unsold
-```
-
-## 6. Demand simulation
-
-Poisson demand with mean:
-
-```text
-λ = base_demand × demand_level × price_factor(price) × urgency_factor(days_remaining)
-```
-
-- Higher prices generally reduce expected demand
-- Randomness via Poisson sampling
-- Optional urgency boost near the event
-- Sales capped by remaining inventory in the environment
-
-See [`src/simulation/demand.py`](src/simulation/demand.py).
-
-## 7. Q-learning
-
-Tabular Q-learning implemented **from scratch** (no deep RL library):
-
-- Epsilon-greedy exploration
-- Manual Bellman / TD update  
-  `Q(s,a) ← Q(s,a) + α [ r + γ max Q(s',a') − Q(s,a) ]`
-- Saved Q-table + training reward history in `models/q_learning_agent.json`
-
-See [`src/agents/q_learning_agent.py`](src/agents/q_learning_agent.py).
-
-## 8. Evaluation methodology
-
-The greedy Q-learning policy is evaluated over many episodes with shared seeds (`base_seed + episode_index`).
-
-Metrics:
-
-- Average / median / std total revenue
-- Sell-through percentage
-- Average selling price
-- Average unsold tickets
-- Sell-out rate
-
-## 9. Results
-
-Default setting: **100 tickets · 20 days · demand_level=1.0 · 100 eval episodes**  
-Training: **3,000 Q-learning episodes**.
-
-| Strategy | Avg revenue | Median | Std | Sell-through | Avg price | Sell-out rate |
-|----------|------------:|-------:|----:|-------------:|----------:|--------------:|
-| **Q-Learning** | **~$16,758** | ~$16,812 | ~$1,037 | ~98.5% | ~$170 | ~68% |
-
-Re-run evaluation to regenerate exact numbers and charts in [`data/`](data/).
-
-## 10. Future improvements
-
-- Demand models trained from public event data
-- Multi-event / seat-tier extensions
-After evaluation, open charts in `data/`:
-
-- `q_learning_training.html` — learning curve  
-- `policy_heatmap.html` — learned pricing policy  
-- `price_over_time.html` / `inventory_over_time.html` / `cumulative_revenue.html`
+For a detailed account of how this project was extended toward the RBC Borealis ML Software Engineer role, see [`PROJECT_CHANGES.md`](PROJECT_CHANGES.md).
 
 ---
 
@@ -269,15 +167,12 @@ After evaluation, open charts in `data/`:
 
 - Synthetic demand (not fitted to real sales data)
 - Simplified customer behavior
-- Discrete prices and coarse state bins
+- Discrete prices and, for Q-learning, coarse state bins
 - Single event / single product
-
----
 
 ## Next steps
 
-- Find a better source for training data  
-- Try a finer state representation or deep RL (e.g. DQN)  
-- Extend to multi-tier seating or multi-event inventory  
-- Move from discrete price levels to continuous pricing  
-
+- Find a better source of real training data to calibrate the demand model.
+- Move from discrete price levels to continuous pricing (e.g. a policy-gradient or actor-critic method), since real prices are not limited to seven fixed values.
+- Extend to multi-tier seating or multiple events sharing inventory.
+- Add big-data tooling (Spark/SQL) to process larger historical datasets.
