@@ -1,4 +1,4 @@
-"""Unit tests for the simulated demand model."""
+"""Demand-model tests."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from simulation.demand import expected_demand, simulate_demand, urgency_factor
 
 
 def test_higher_price_has_lower_expected_demand() -> None:
-    """Price should generally reduce expected demand, all else equal."""
     low = expected_demand(price=50, days_remaining=10, selling_days=20)
     mid = expected_demand(price=100, days_remaining=10, selling_days=20)
     high = expected_demand(price=200, days_remaining=10, selling_days=20)
@@ -30,7 +29,6 @@ def test_demand_samples_are_non_negative_integers() -> None:
 
 
 def test_urgency_increases_expected_demand_near_event() -> None:
-    """Fewer days remaining should raise expected demand when urgency > 0."""
     early = expected_demand(
         price=100,
         days_remaining=20,

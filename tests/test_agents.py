@@ -1,4 +1,4 @@
-"""Tests for the tabular Q-learning agent and evaluation helpers."""
+"""Q-learning and evaluation tests."""
 
 from __future__ import annotations
 

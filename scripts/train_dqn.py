@@ -1,11 +1,4 @@
-"""
-Train the Keras Deep Q-Network agent and save the model + reward history.
-
-Usage (from project root):
-
-    PYTHONPATH=src python scripts/train_dqn.py
-    PYTHONPATH=src python scripts/train_dqn.py --episodes 800
-"""
+"""Train and save the DQN pricing agent."""
 
 from __future__ import annotations
 

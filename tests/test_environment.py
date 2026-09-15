@@ -1,4 +1,4 @@
-"""Unit tests for DynamicPricingEnv."""
+"""Environment tests."""
 
 from __future__ import annotations
 
@@ -29,12 +29,12 @@ def test_tickets_sold_cannot_exceed_remaining_inventory() -> None:
     env = DynamicPricingEnv(
         initial_inventory=5,
         selling_days=50,
-        demand_level=10.0,  # intentionally high demand
+        demand_level=10.0,  # Force demand above the available inventory.
         seed=2,
     )
     env.reset(seed=2)
     remaining_before = env.tickets_remaining
-    _, _, _, _, info = env.step(0)  # cheapest price → high demand
+    _, _, _, _, info = env.step(0)  # Use the cheapest price to maximize demand.
     assert info["tickets_sold"] <= remaining_before
     assert info["tickets_sold"] <= info["demand"]
 
@@ -60,13 +60,13 @@ def test_episode_ends_when_days_reach_zero() -> None:
     env = DynamicPricingEnv(
         initial_inventory=10_000,
         selling_days=5,
-        demand_level=0.01,  # almost no demand → time should expire first
+        demand_level=0.01,  # Keep enough inventory for the clock to expire.
         seed=4,
     )
     env.reset(seed=4)
     terminated = False
     for _ in range(5):
-        _, _, terminated, _, info = env.step(6)  # expensive price
+        _, _, terminated, _, info = env.step(6)
     assert terminated
     assert info["days_remaining"] == 0
     assert info["tickets_remaining"] > 0
@@ -80,7 +80,7 @@ def test_reward_equals_daily_revenue_without_penalty() -> None:
         seed=5,
     )
     env.reset(seed=5)
-    action = 2  # $100
+    action = 2
     _, reward, _, _, info = env.step(action)
     assert reward == pytest.approx(info["price"] * info["tickets_sold"])
     assert info["penalty"] == 0.0
@@ -90,7 +90,7 @@ def test_terminal_inventory_penalty_applied_when_time_expires() -> None:
     env = DynamicPricingEnv(
         initial_inventory=50,
         selling_days=2,
-        demand_level=0.0,  # zero demand → unsold inventory remains
+        demand_level=0.0,  # Leave all inventory unsold.
         terminal_inventory_penalty=3.0,
         seed=6,
     )
@@ -101,7 +101,6 @@ def test_terminal_inventory_penalty_applied_when_time_expires() -> None:
     assert terminated
     assert info["days_remaining"] == 0
     assert info["tickets_remaining"] == 50
-    # No sales, so reward is only the penalty.
     assert info["revenue"] == 0.0
     assert info["penalty"] == pytest.approx(3.0 * 50)
     assert reward == pytest.approx(-150.0)
@@ -124,7 +123,7 @@ def test_seeded_episodes_are_reproducible() -> None:
         env.reset(seed=seed)
         rewards = []
         terminated = False
-        # Use a fixed action sequence so only env randomness differs.
+        # Hold the policy fixed while checking the environment seed.
         action = 2
         while not terminated:
             _, reward, terminated, _, _ = env.step(action)
@@ -132,7 +131,6 @@ def test_seeded_episodes_are_reproducible() -> None:
         return rewards
 
     assert run(42) == run(42)
-    # Different seeds should usually differ; if not, at least lengths are valid.
     assert len(run(1)) >= 1
 
 

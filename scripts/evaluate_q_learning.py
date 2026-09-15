@@ -1,15 +1,4 @@
-"""
-Evaluate the trained pricing agents and write charts/metrics.
-
-By default this compares the tabular Q-learning agent against the Keras DQN
-agent under identical seeds. If the DQN model has not been trained yet, the
-script still runs and evaluates Q-learning alone.
-
-Usage:
-
-    PYTHONPATH=src python scripts/evaluate_q_learning.py
-    PYTHONPATH=src python scripts/evaluate_q_learning.py --episodes 200
-"""
+"""Evaluate saved pricing agents and export metrics and charts."""
 
 from __future__ import annotations
 
@@ -106,7 +95,7 @@ def main() -> None:
     save_figure(plot_revenue_distribution(results), str(out / "revenue_distribution.html"))
     save_figure(plot_policy_heatmap(q_agent), str(out / "policy_heatmap.html"))
 
-    # Per-episode trajectory charts for each agent that produced a trace.
+    # Save a representative trajectory for each strategy.
     for name, trace in traces.items():
         slug = name.lower().replace(" ", "_").replace("-", "_")
         save_figure(plot_price_over_time(trace), str(out / f"price_over_time_{slug}.html"))

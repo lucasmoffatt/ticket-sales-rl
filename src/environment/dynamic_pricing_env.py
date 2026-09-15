@@ -1,26 +1,4 @@
-"""
-Gymnasium environment for dynamic ticket pricing.
-
-What is a Gymnasium environment?
---------------------------------
-Reinforcement learning needs a standard interface between an *agent* and the
-*world* it interacts with. Gymnasium defines that interface:
-
-- reset(): start a new episode, return the first observation
-- step(action): apply one action, return (obs, reward, terminated, truncated, info)
-
-Why build a custom env?
------------------------
-Ticket pricing is not a built-in Gymnasium game. A custom env lets us define
-exactly the business rules we care about: fixed inventory, limited selling days,
-discrete prices, and stochastic demand.
-
-Episode termination vs truncation
----------------------------------
-- terminated: the task naturally ended (sold out, or event day reached).
-- truncated: we stopped early for some external reason (time limit wrapper, etc.).
-In this env we only use natural termination; truncated is always False.
-"""
+"""Gymnasium environment for a finite-horizon ticket sale."""
 
 from __future__ import annotations
 
@@ -38,27 +16,7 @@ DEFAULT_PRICE_LEVELS: List[int] = [50, 75, 100, 125, 150, 175, 200]
 
 
 class DynamicPricingEnv(gym.Env):
-    """
-    Sell a fixed inventory of tickets over a limited number of days.
-
-    State (observation) — no look-ahead / future information:
-        1. normalized tickets remaining
-        2. normalized days remaining
-        3. previous ticket price (normalized)
-        4. previous day's sales (normalized by initial inventory)
-
-    Action:
-        Discrete index into ``price_levels``.
-
-    Reward (version 1):
-        daily revenue = price × tickets_sold
-
-    Optional reward shaping:
-        When the selling window ends with unsold tickets, subtract
-        ``terminal_inventory_penalty × unsold``. Default penalty is 0.0 so the
-        base problem stays simple. Reward shaping can help learning later, but
-        can also distort the true business objective if overused.
-    """
+    """Sell a fixed ticket inventory over a limited number of days."""
 
     metadata = {"render_modes": []}
 
@@ -75,13 +33,7 @@ class DynamicPricingEnv(gym.Env):
         urgency_strength: float = 0.5,
         seed: Optional[int] = None,
     ) -> None:
-        """
-        Configure the pricing problem.
-
-        Parameters are stored on the instance so nothing important is hard-coded
-        inside ``step`` / ``reset``. That makes experiments and the future
-        Streamlit dashboard much easier.
-        """
+        """Configure the inventory, demand model, and available prices."""
         super().__init__()
 
         if initial_inventory <= 0:
@@ -112,14 +64,10 @@ class DynamicPricingEnv(gym.Env):
 
         self.max_price = float(max(self.price_levels))
 
-        # Action space: choose one of the allowed ticket prices by index.
-        # Discrete actions keep Stage 1–3 simple (tabular Q-learning needs this).
-        # Continuous prices are an alternative, but need different algorithms.
+        # Actions are indices into price_levels.
         self.action_space = spaces.Discrete(len(self.price_levels))
 
-        # Observation space: four normalized features in [0, 1].
-        # Tabular Q-learning discretizes the first two features into bins;
-        # keeping a Box observation makes that conversion straightforward.
+        # Observations contain inventory, time, previous price, and previous sales.
         self.observation_space = spaces.Box(
             low=0.0,
             high=1.0,
@@ -127,18 +75,16 @@ class DynamicPricingEnv(gym.Env):
             dtype=np.float32,
         )
 
-        # Internal episode state (set fully in reset).
         self.tickets_remaining: int = self.initial_inventory
         self.days_remaining: int = self.selling_days
         self.previous_price: float = 0.0
         self.previous_sales: int = 0
         self._np_random: Generator
 
-        # Seed at construction for convenience; reset(seed=...) can re-seed.
         self.reset(seed=seed)
 
     def _get_obs(self) -> np.ndarray:
-        """Build the normalized observation vector (no future information)."""
+        """Return the current state normalized to the observation bounds."""
         obs = np.array(
             [
                 self.tickets_remaining / self.initial_inventory,
@@ -148,11 +94,10 @@ class DynamicPricingEnv(gym.Env):
             ],
             dtype=np.float32,
         )
-        # Numerical safety: keep values inside the declared observation space.
         return np.clip(obs, 0.0, 1.0)
 
     def _get_info(self, **extra: Any) -> Dict[str, Any]:
-        """Diagnostic info dict (not used for learning decisions by the agent)."""
+        """Build the diagnostic data returned by ``reset`` and ``step``."""
         info: Dict[str, Any] = {
             "tickets_remaining": self.tickets_remaining,
             "days_remaining": self.days_remaining,
@@ -168,24 +113,12 @@ class DynamicPricingEnv(gym.Env):
         seed: Optional[int] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """
-        Start a new selling season (episode).
-
-        Gymnasium contract:
-            return (observation, info)
-
-        Why reset exists:
-            RL agents learn over many episodes. Each episode must start from a
-            well-defined initial state so comparisons and training curves are
-            meaningful. Seeding here makes randomness reproducible.
-        """
-        # gym.Env.reset handles seeding of self.np_random when seed is provided.
+        """Reset the selling period and return its initial state."""
         super().reset(seed=seed)
         self._np_random = self.np_random
 
         self.tickets_remaining = self.initial_inventory
         self.days_remaining = self.selling_days
-        # No previous market activity at the start of an episode.
         self.previous_price = 0.0
         self.previous_sales = 0
 
@@ -196,20 +129,7 @@ class DynamicPricingEnv(gym.Env):
     def step(
         self, action: int
     ) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
-        """
-        Advance the market by one day given a pricing action.
-
-        Gymnasium contract:
-            return (observation, reward, terminated, truncated, info)
-
-        Sequence each day:
-            1. Agent chooses a price (action index)
-            2. Demand is simulated
-            3. Sales are limited by remaining inventory
-            4. Revenue / reward is computed
-            5. Clock moves forward one day
-            6. Episode ends if sold out or the event date is reached
-        """
+        """Apply a price for one day and return the resulting transition."""
         if not self.action_space.contains(action):
             raise ValueError(
                 f"Invalid action {action}; expected integer in "
@@ -230,7 +150,6 @@ class DynamicPricingEnv(gym.Env):
             rng=self._np_random,
         )
 
-        # Never sell more tickets than remain.
         tickets_sold = min(int(demand), self.tickets_remaining)
         revenue = price * tickets_sold
 
@@ -240,10 +159,6 @@ class DynamicPricingEnv(gym.Env):
         self.previous_price = price
         self.previous_sales = tickets_sold
 
-        # Version 1 reward: daily revenue.
-        # Alternative designs: only reward at episode end (sparse), or penalize
-        # unsold inventory (reward shaping). We keep daily revenue as the default
-        # because it is intuitive and gives the agent a learning signal every day.
         reward = float(revenue)
 
         sold_out = self.tickets_remaining == 0
@@ -251,9 +166,7 @@ class DynamicPricingEnv(gym.Env):
         terminated = bool(sold_out or time_up)
         truncated = False
 
-        # Optional terminal penalty for leftover inventory when time runs out.
-        # Applied only on natural end-of-horizon (not when we sell out early),
-        # so successful sell-outs are not punished.
+        # Charge the inventory penalty only when the selling window expires.
         penalty = 0.0
         if time_up and self.tickets_remaining > 0 and self.terminal_inventory_penalty > 0:
             penalty = self.terminal_inventory_penalty * self.tickets_remaining

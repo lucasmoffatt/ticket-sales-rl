@@ -1,14 +1,4 @@
-"""
-Streamlit dashboard for the dynamic pricing agents.
-
-Run from the project root:
-
-    PYTHONPATH=src streamlit run app/streamlit_app.py
-
-or simply:
-
-    ./scripts/app.sh
-"""
+"""Streamlit dashboard for running trained pricing agents."""
 
 from __future__ import annotations
 

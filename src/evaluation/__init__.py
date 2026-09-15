@@ -1,4 +1,4 @@
-"""Evaluation utilities for the pricing agents."""
+"""Agent evaluation tools."""
 
 from evaluation.evaluator import compare_agents, evaluate_agent, evaluate_q_learning
 from evaluation.metrics import EpisodeResult, summarize_results
