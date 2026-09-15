@@ -1,4 +1,4 @@
-"""Demand simulation utilities."""
+"""Synthetic market components."""
 
 from simulation.demand import expected_demand, simulate_demand
 

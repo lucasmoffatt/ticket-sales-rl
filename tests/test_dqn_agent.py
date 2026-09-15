@@ -1,4 +1,4 @@
-"""Tests for the Keras Deep Q-Network agent."""
+"""DQN agent tests."""
 
 from __future__ import annotations
 
@@ -58,7 +58,6 @@ def test_dqn_trains_and_saves(tmp_path) -> None:
 
     loaded = DQNAgent.load(base)
     obs = np.array([1.0, 1.0, 0.0, 0.0], dtype=np.float32)
-    # Same weights -> same greedy action.
     assert loaded.select_action(obs, explore=False) == agent.select_action(
         obs, explore=False
     )

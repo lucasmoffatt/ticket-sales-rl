@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Launch the interactive Streamlit dashboard.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

@@ -1,37 +1,4 @@
-"""
-Tabular Q-Learning agent for dynamic ticket pricing.
-
-Core RL vocabulary (interview cheat-sheet)
-------------------------------------------
-- State (s): a compact description of the situation. Here we *discretize*
-  continuous observations into categories so a table can store values.
-- Action (a): which ticket price to charge (discrete index).
-- Reward (r): immediate feedback — daily revenue in this project.
-- Q-value Q(s, a): the agent's current estimate of "how good is action a in
-  state s?", measured as expected future discounted return.
-- Learning rate α (alpha): how aggressively we overwrite old Q estimates with
-  new experience. α=0 ignores new data; α=1 fully replaces the old value.
-- Discount factor γ (gamma): how much we value future rewards vs immediate ones.
-  γ=0 is myopic (only today); γ close to 1 plans further ahead.
-- Epsilon (ε): probability of exploring a random action instead of exploiting
-  the current best action (epsilon-greedy).
-- Exploration vs exploitation: try new prices to learn (explore) vs use the
-  best-known price to earn revenue (exploit). Too little exploration → stuck
-  in a bad policy; too much → never cash in on what you learned.
-
-Q-learning update (Bellman / temporal-difference target)
---------------------------------------------------------
-    Q(s, a) ← Q(s, a) + α * [ r + γ * max_a' Q(s', a') - Q(s, a) ]
-
-For terminal states, the future term is 0:
-    Q(s, a) ← Q(s, a) + α * [ r - Q(s, a) ]
-
-Why tabular Q-learning before DQN?
-----------------------------------
-A table is fully inspectable. You can print Q-values and explain exactly what
-the agent prefers. Neural nets are more powerful but harder to debug when you
-are first learning RL.
-"""
+"""Tabular Q-learning agent for the ticket-pricing environment."""
 
 from __future__ import annotations
 
@@ -51,7 +18,7 @@ DiscreteState = Tuple[InventoryBin, TimeBin]
 
 
 def discretize_inventory(tickets_frac: float) -> InventoryBin:
-    """Map normalized inventory in [0, 1] to Low / Medium / High."""
+    """Assign normalized inventory to one of three bins."""
     if tickets_frac < 1.0 / 3.0:
         return "Low"
     if tickets_frac < 2.0 / 3.0:
@@ -60,8 +27,7 @@ def discretize_inventory(tickets_frac: float) -> InventoryBin:
 
 
 def discretize_time(days_frac: float) -> TimeBin:
-    """Map normalized days remaining in [0, 1] to Early / Middle / Late."""
-    # High days_frac means early in the selling window.
+    """Assign normalized time remaining to a selling-period bin."""
     if days_frac > 2.0 / 3.0:
         return "Early"
     if days_frac > 1.0 / 3.0:
@@ -70,7 +36,7 @@ def discretize_time(days_frac: float) -> TimeBin:
 
 
 def discretize_observation(observation: np.ndarray) -> DiscreteState:
-    """Convert a continuous env observation into a tabular state key."""
+    """Reduce an observation to the dimensions used by the Q-table."""
     return (
         discretize_inventory(float(observation[0])),
         discretize_time(float(observation[1])),
@@ -78,7 +44,7 @@ def discretize_observation(observation: np.ndarray) -> DiscreteState:
 
 
 class QLearningAgent:
-    """From-scratch tabular Q-learning with epsilon-greedy action selection."""
+    """Tabular Q-learning with an epsilon-greedy policy."""
 
     name = "Q-Learning"
 
@@ -109,7 +75,7 @@ class QLearningAgent:
             raise ValueError("n_actions must match len(price_levels)")
 
         self._rng: Generator = np.random.default_rng(seed)
-        # Q-table: dict[(inv_bin, time_bin)] -> np.ndarray shape (n_actions,)
+        # Each state maps to one Q-value per available price.
         self.q_table: Dict[DiscreteState, np.ndarray] = {}
         self.training_rewards: List[float] = []
         self._ensure_all_states()
@@ -133,18 +99,12 @@ class QLearningAgent:
         *,
         explore: bool = True,
     ) -> int:
-        """
-        Epsilon-greedy policy.
-
-        With probability ε: explore (random action).
-        Otherwise: exploit (argmax Q(s, ·)).
-        During evaluation, call with explore=False.
-        """
+        """Choose an action, optionally allowing epsilon-greedy exploration."""
         state = discretize_observation(observation)
         if explore and self._rng.random() < self.epsilon:
             return int(self._rng.integers(0, self.n_actions))
         q_values = self.get_q_values(state)
-        # Tie-break randomly among equal max Q-values for fairness.
+        # Avoid consistently favoring the lowest-index action on ties.
         max_q = float(np.max(q_values))
         best_actions = np.flatnonzero(np.isclose(q_values, max_q))
         return int(self._rng.choice(best_actions))
@@ -157,13 +117,7 @@ class QLearningAgent:
         next_state: DiscreteState,
         terminated: bool,
     ) -> None:
-        """
-        Apply one Q-learning TD update.
-
-        TD error = target - current_estimate
-        target   = r           if terminal
-                 = r + γ max_a' Q(s', a') otherwise
-        """
+        """Apply one temporal-difference update."""
         q_values = self.get_q_values(state)
         current_q = float(q_values[action])
 
@@ -177,11 +131,11 @@ class QLearningAgent:
         q_values[action] = current_q + self.alpha * td_error
 
     def decay_epsilon(self) -> None:
-        """Shrink exploration over training so the agent exploits more later."""
+        """Reduce the exploration rate without dropping below its floor."""
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
     def greedy_action_for_bins(self, inventory_bin: str, time_bin: str) -> int:
-        """Preferred action for a discrete (inventory, time) cell — for heatmaps."""
+        """Return the best action for an inventory/time bin pair."""
         q_values = self.get_q_values((inventory_bin, time_bin))
         return int(np.argmax(q_values))
 
@@ -195,12 +149,7 @@ class QLearningAgent:
         n_episodes: int = 3000,
         seed: Optional[int] = None,
     ) -> List[float]:
-        """
-        Run tabular Q-learning for ``n_episodes`` and store episode returns.
-
-        Returns the list of total rewards per episode (also saved on
-        ``self.training_rewards``).
-        """
+        """Train for ``n_episodes`` and return the reward from each episode."""
         self.training_rewards = []
         for episode in range(n_episodes):
             episode_seed = None if seed is None else seed + episode

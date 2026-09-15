@@ -1,9 +1,4 @@
-"""
-Episode-level and aggregate metrics for pricing strategies.
-
-We separate metric *definitions* from the evaluation loop so formulas stay easy
-to audit in an interview.
-"""
+"""Episode-level and aggregate evaluation metrics."""
 
 from __future__ import annotations
 
@@ -16,7 +11,7 @@ import pandas as pd
 
 @dataclass
 class EpisodeResult:
-    """Outcome of one simulated selling season."""
+    """Summary of one simulated selling period."""
 
     strategy: str
     episode: int
@@ -43,7 +38,7 @@ def compute_episode_result(
     initial_inventory: int,
     final_inventory: int,
 ) -> EpisodeResult:
-    """Build metrics for a single finished episode."""
+    """Calculate metrics for a completed episode."""
     tickets_sold = int(sum(tickets_sold_per_step))
     total_revenue = float(sum(revenues))
     unsold = int(final_inventory)
@@ -65,16 +60,7 @@ def compute_episode_result(
 
 
 def summarize_results(results: Sequence[EpisodeResult]) -> pd.DataFrame:
-    """
-    Aggregate many episodes into recruiter-friendly summary statistics.
-
-    Metrics:
-    - average / median / std total revenue
-    - average sell-through percentage
-    - average selling price
-    - average unsold tickets
-    - percentage of episodes that sell out
-    """
+    """Aggregate episode results by pricing strategy."""
     if not results:
         return pd.DataFrame()
 
@@ -94,19 +80,18 @@ def summarize_results(results: Sequence[EpisodeResult]) -> pd.DataFrame:
         .reset_index()
     )
 
-    # Percent-style columns for readability.
     summary["avg_sell_through_pct"] = summary["avg_sell_through"] * 100.0
     summary["sellout_rate_pct"] = summary["sellout_rate"] * 100.0
     return summary
 
 
 def results_to_frame(results: Sequence[EpisodeResult]) -> pd.DataFrame:
-    """Convert episode results to a tidy DataFrame."""
+    """Convert episode results to a DataFrame."""
     return pd.DataFrame([r.to_dict() for r in results])
 
 
 def moving_average(values: Sequence[float], window: int = 50) -> np.ndarray:
-    """Smooth a training curve for visualization."""
+    """Return a moving average with the requested window size."""
     arr = np.asarray(values, dtype=np.float64)
     if len(arr) == 0:
         return arr

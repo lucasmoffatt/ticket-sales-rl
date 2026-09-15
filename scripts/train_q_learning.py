@@ -1,11 +1,4 @@
-"""
-Train the tabular Q-learning agent and save the Q-table + reward history.
-
-Usage (from project root):
-
-    PYTHONPATH=src python scripts/train_q_learning.py
-    PYTHONPATH=src python scripts/train_q_learning.py --episodes 5000
-"""
+"""Train and save the tabular Q-learning agent."""
 
 from __future__ import annotations
 

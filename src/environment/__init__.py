@@ -1,4 +1,4 @@
-"""Custom Gymnasium environments for the RL Dynamic Pricing project."""
+"""Ticket-pricing environments."""
 
 from environment.dynamic_pricing_env import DEFAULT_PRICE_LEVELS, DynamicPricingEnv
 

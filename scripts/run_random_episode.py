@@ -1,14 +1,4 @@
-"""
-Run a few random-pricing episodes in DynamicPricingEnv.
-
-This is a manual sanity check for Stage 1 — not a trained agent.
-A random policy simply samples a legal price each day so you can inspect
-how inventory, demand, and revenue evolve.
-
-Usage (from the project root):
-
-    PYTHONPATH=src python scripts/run_random_episode.py
-"""
+"""Run a few episodes with randomly selected prices."""
 
 from __future__ import annotations
 

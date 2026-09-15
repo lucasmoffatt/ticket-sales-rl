@@ -1,14 +1,4 @@
-"""
-Evaluation helpers for the pricing agents (tabular Q-learning and DQN).
-
-Fairness notes
---------------
-- Fixed environment parameters across evaluation episodes.
-- Deterministic (greedy) action selection — no exploration.
-- Episode k uses seed = base_seed + k for reproducibility.
-- When comparing agents, every agent sees the exact same seeds, so differences
-  in revenue reflect the policy, not luck.
-"""
+"""Run and compare pricing agents under reproducible conditions."""
 
 from __future__ import annotations
 
@@ -25,11 +15,7 @@ ActionFn = Callable[[np.ndarray, Dict[str, Any]], int]
 
 
 class GreedyAgent(Protocol):
-    """Minimal interface an agent needs to be evaluated.
-
-    Both ``QLearningAgent`` and ``DQNAgent`` satisfy this, which is why the same
-    evaluation loop works for either one.
-    """
+    """Interface required by the shared evaluation loop."""
 
     name: str
 
@@ -44,7 +30,7 @@ class GreedyAgent(Protocol):
 
 @dataclass
 class EpisodeTrace:
-    """Step-by-step trajectory for plotting a representative episode."""
+    """Values recorded at each step of an episode."""
 
     strategy: str
     prices: List[float] = field(default_factory=list)
@@ -64,7 +50,7 @@ def run_episode(
     seed: Optional[int] = None,
     record_trace: bool = False,
 ) -> tuple[EpisodeResult, Optional[EpisodeTrace]]:
-    """Simulate one episode and optionally keep a plotting trace."""
+    """Run one episode and optionally record its trajectory."""
     observation, info = env.reset(seed=seed)
     revenues: List[float] = []
     tickets_sold_list: List[int] = []
@@ -117,7 +103,7 @@ def evaluate_agent(
     record_first_trace: bool = True,
     strategy_name: Optional[str] = None,
 ) -> tuple[List[EpisodeResult], Optional[EpisodeTrace]]:
-    """Evaluate a greedy policy over many episodes (works for any agent)."""
+    """Evaluate an agent without exploration."""
     kwargs = dict(env_kwargs or {})
     env = DynamicPricingEnv(**kwargs)
     label = strategy_name or agent.name
@@ -171,14 +157,7 @@ def compare_agents(
     base_seed: int = 123,
     record_first_trace: bool = True,
 ) -> tuple[List[EpisodeResult], Dict[str, EpisodeTrace]]:
-    """
-    Evaluate several agents under identical seeds and pool their results.
-
-    Returns the combined list of per-episode results (each tagged with the
-    agent's ``name``) plus a dict mapping agent name -> its first-episode trace.
-    ``summarize_results`` groups the combined list by strategy for a side-by-side
-    comparison table.
-    """
+    """Evaluate each agent with the same episode seeds."""
     combined: List[EpisodeResult] = []
     traces: Dict[str, EpisodeTrace] = {}
 
@@ -198,5 +177,5 @@ def compare_agents(
 
 
 def summary_table(results: List[EpisodeResult]):
-    """Convenience wrapper used by scripts and the Streamlit app."""
+    """Summarize a set of episode results."""
     return summarize_results(results)

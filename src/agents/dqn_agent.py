@@ -1,37 +1,4 @@
-"""
-Deep Q-Network (DQN) agent for dynamic ticket pricing (TensorFlow / Keras).
-
-Why a neural network after tabular Q-learning?
-----------------------------------------------
-The tabular agent (``q_learning_agent.py``) has to *discretize* the market into
-9 coarse buckets (3 inventory bins x 3 time bins) so a lookup table can store a
-value for every situation. That is easy to inspect but throws away detail: two
-very different days can land in the same bucket.
-
-A DQN replaces the table with a small neural network that reads the *full*
-continuous observation the environment already produces:
-
-    [ normalized tickets remaining,
-      normalized days remaining,
-      normalized previous price,
-      normalized previous sales ]
-
-The network learns a function Q(state) -> value for each price, so it can react
-to fine-grained differences the table cannot see.
-
-Three ideas that make DQN stable (interview cheat-sheet)
--------------------------------------------------------
-- Replay buffer: we store past transitions and train on random mini-batches.
-  This breaks the strong correlation between consecutive days, which would
-  otherwise make gradient descent unstable.
-- Target network: a slowly-updated copy of the network provides the learning
-  target r + gamma * max_a' Q_target(s', a'). Bootstrapping off a *moving*
-  target is unstable, so we freeze it and refresh it every so often.
-- Epsilon-greedy: same exploration/exploitation trade-off as tabular Q-learning.
-
-The learning rule is the same Bellman/temporal-difference target as the tabular
-agent; only the value store (network vs table) changes.
-"""
+"""Deep Q-network agent for the ticket-pricing environment."""
 
 from __future__ import annotations
 
@@ -53,7 +20,7 @@ Transition = Tuple[np.ndarray, int, float, np.ndarray, bool]
 
 
 class ReplayBuffer:
-    """Fixed-size memory of past transitions, sampled uniformly at random."""
+    """Fixed-size buffer of previously observed transitions."""
 
     def __init__(self, capacity: int = 10_000) -> None:
         self.capacity = int(capacity)
@@ -80,7 +47,7 @@ class ReplayBuffer:
     def sample(
         self, batch_size: int, rng: Generator
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Return a random mini-batch as stacked NumPy arrays."""
+        """Sample a batch and split it into stacked arrays."""
         indices = rng.integers(0, len(self._memory), size=batch_size)
         batch = [self._memory[int(i)] for i in indices]
         states = np.stack([b[0] for b in batch])
@@ -97,7 +64,7 @@ class ReplayBuffer:
 def build_q_network(
     obs_dim: int, n_actions: int, hidden: Sequence[int] = (64, 64)
 ) -> keras.Model:
-    """A small feed-forward network mapping an observation to one Q-value per action."""
+    """Build the network used to estimate action values."""
     layers = [keras.layers.Input(shape=(obs_dim,))]
     for units in hidden:
         layers.append(keras.layers.Dense(units, activation="relu"))
@@ -106,12 +73,7 @@ def build_q_network(
 
 
 class DQNAgent:
-    """
-    Deep Q-Network agent with a replay buffer and a target network.
-
-    The public interface (``name``, ``select_action``) matches ``QLearningAgent``
-    so the same evaluation loop and Streamlit app work with either agent.
-    """
+    """DQN agent with experience replay and a target network."""
 
     name = "DQN"
 
@@ -141,10 +103,7 @@ class DQNAgent:
         self.epsilon_decay = float(epsilon_decay)
         self.batch_size = int(batch_size)
         self.target_update_freq = int(target_update_freq)
-        # Revenue is measured in thousands of dollars, which makes raw Q-targets
-        # large and training unstable. Scaling the reward keeps targets small.
-        # Action selection uses argmax, so a constant scale does not change the
-        # learned policy — only its numerical stability.
+        # Keep TD targets near the scale of the network's initial outputs.
         self.reward_scale = float(reward_scale)
         self.hidden = tuple(int(h) for h in hidden)
         self.price_levels: List[float] = list(
@@ -168,7 +127,7 @@ class DQNAgent:
         self.training_rewards: List[float] = []
 
     def _update_target(self) -> None:
-        """Copy the online network's weights into the frozen target network."""
+        """Synchronize the target network with the online network."""
         self.target_model.set_weights(self.model.get_weights())
 
     def select_action(
@@ -178,7 +137,7 @@ class DQNAgent:
         *,
         explore: bool = True,
     ) -> int:
-        """Epsilon-greedy over the network's predicted Q-values."""
+        """Choose an action from the current epsilon-greedy policy."""
         del info
         if explore and self._rng.random() < self.epsilon:
             return int(self._rng.integers(0, self.n_actions))
@@ -197,7 +156,7 @@ class DQNAgent:
         self.buffer.add(state, action, reward, next_state, done)
 
     def learn_from_buffer(self) -> Optional[float]:
-        """Run one gradient step on a random mini-batch. Returns the loss."""
+        """Train on one replay batch, returning the loss if a batch is available."""
         if len(self.buffer) < self.batch_size:
             return None
 
@@ -205,7 +164,7 @@ class DQNAgent:
             self.batch_size, self._rng
         )
 
-        # TD target from the frozen target network.
+        # The target network is held fixed between periodic updates.
         next_q = self.target_model(next_states, training=False).numpy()
         max_next_q = np.max(next_q, axis=1)
         targets = self.reward_scale * rewards + self.gamma * max_next_q * (1.0 - dones)
@@ -220,7 +179,7 @@ class DQNAgent:
     def _train_step(
         self, states: tf.Tensor, actions: tf.Tensor, targets: tf.Tensor
     ) -> tf.Tensor:
-        """Gradient descent on the Q-value of the actions actually taken."""
+        """Update Q-values for the actions represented in the batch."""
         with tf.GradientTape() as tape:
             q_values = self.model(states, training=True)
             action_masks = tf.one_hot(actions, self.n_actions)
@@ -231,7 +190,7 @@ class DQNAgent:
         return loss
 
     def decay_epsilon(self) -> None:
-        """Shrink exploration over training so the agent exploits more later."""
+        """Reduce the exploration rate without dropping below its floor."""
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
     def train(
@@ -241,13 +200,7 @@ class DQNAgent:
         seed: Optional[int] = None,
         warmup_steps: int = 200,
     ) -> List[float]:
-        """
-        Train the DQN and return total (unscaled) reward per episode.
-
-        We fill the replay buffer for ``warmup_steps`` before learning so the
-        first gradient updates see a variety of transitions, not just the very
-        first few correlated days.
-        """
+        """Train the DQN and return the unscaled reward from each episode."""
         self.training_rewards = []
         step_count = 0
 
@@ -297,14 +250,14 @@ class DQNAgent:
 
     @staticmethod
     def _base_path(path: Union[str, Path]) -> Path:
-        """Normalize a path to a base with no extension (we add .keras / .json)."""
+        """Strip a known model extension from ``path``."""
         p = Path(path)
         if p.suffix in {".keras", ".json"}:
             p = p.with_suffix("")
         return p
 
     def save(self, path: Union[str, Path]) -> None:
-        """Save the network (``.keras``) and hyperparameters (``.json``)."""
+        """Save model weights and metadata under a common base path."""
         base = self._base_path(path)
         base.parent.mkdir(parents=True, exist_ok=True)
         self.model.save(f"{base}.keras")
@@ -321,6 +274,6 @@ class DQNAgent:
         agent.model = keras.models.load_model(f"{base}.keras")
         agent._update_target()
         agent.training_rewards = list(training_rewards)
-        # A loaded agent is for evaluation: exploit, don't explore.
+        # Loaded agents default to deterministic evaluation.
         agent.epsilon = agent.epsilon_min
         return agent

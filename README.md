@@ -30,9 +30,13 @@ flowchart LR
     NewState --> Env
 ```
 
+
+
 Each day the agent observes the market, chooses a ticket price, customers respond (with randomness), revenue is collected, and the season continues until tickets sell out or the event date arrives.
 
 ---
+
+
 
 ## How to run
 
@@ -48,27 +52,22 @@ pytest -q                          # run the test suite
 ./scripts/app.sh                   # launch the interactive dashboard
 ```
 
-Prefer plain Python? Every script has a direct equivalent, for example:
-
-```bash
-PYTHONPATH=src python scripts/train_dqn.py --episodes 500
-PYTHONPATH=src streamlit run app/streamlit_app.py
-```
-
-Trained models are already included, so you can jump straight to evaluation or the dashboard.
-
 ---
+
+
 
 ## State, actions, and reward
 
 **State** — normalized features with no future / look-ahead information:
 
-| Index | Feature | Meaning |
-|------:|---------|---------|
-| 0 | tickets remaining / initial inventory | Stock left |
-| 1 | days remaining / selling days | Time left |
-| 2 | previous price / max price | Last price charged |
-| 3 | previous sales / initial inventory | Recent demand signal |
+
+| Index | Feature                               | Meaning              |
+| ----- | ------------------------------------- | -------------------- |
+| 0     | tickets remaining / initial inventory | Stock left           |
+| 1     | days remaining / selling days         | Time left            |
+| 2     | previous price / max price            | Last price charged   |
+| 3     | previous sales / initial inventory    | Recent demand signal |
+
 
 **Actions** — discrete prices: **$50 · $75 · $100 · $125 · $150 · $175 · $200**
 
@@ -80,11 +79,13 @@ if days == 0 and unsold > 0:
     reward -= terminal_inventory_penalty × unsold   # optional, default 0
 ```
 
-**Demand** — simulated with a Poisson process whose mean falls as price rises and can rise slightly as the event approaches. Sales are always capped by remaining inventory. See [`src/simulation/demand.py`](src/simulation/demand.py).
+**Demand** — simulated with a Poisson process whose mean falls as price rises and can rise slightly as the event approaches. Sales are always capped by remaining inventory. See `[src/simulation/demand.py](src/simulation/demand.py)`.
 
 ---
 
 ## The two agents
+
+
 
 ### Tabular Q-learning (from scratch)
 
@@ -94,7 +95,7 @@ The table cannot use raw continuous numbers, so inventory and time are binned in
 Q(s,a) ← Q(s,a) + α [ r + γ max Q(s',a') − Q(s,a) ]
 ```
 
-It is fully inspectable: you can print the table and read off the preferred price for any situation. See [`src/agents/q_learning_agent.py`](src/agents/q_learning_agent.py).
+It is fully inspectable: you can print the table and read off the preferred price for any situation. See `[src/agents/q_learning_agent.py](src/agents/q_learning_agent.py)`.
 
 ### Deep Q-Network (TensorFlow/Keras)
 
@@ -104,7 +105,7 @@ The DQN replaces the table with a small neural network that reads the **full fou
 - **Target network** — a slowly updated copy provides stable learning targets.
 - **Epsilon-greedy** — the same explore-vs-exploit balance as Q-learning.
 
-See [`src/agents/dqn_agent.py`](src/agents/dqn_agent.py).
+See `[src/agents/dqn_agent.py](src/agents/dqn_agent.py)`.
 
 ---
 
@@ -112,13 +113,15 @@ See [`src/agents/dqn_agent.py`](src/agents/dqn_agent.py).
 
 Both agents were evaluated on 100 fresh seasons using the **same seeds** (100 tickets, 20 selling days), so differences reflect the strategy rather than luck.
 
-| Metric | Q-Learning (table) | DQN (neural network) |
-| --- | ---: | ---: |
-| Average total revenue | ~$16,758 | **~$17,448** |
-| Median total revenue | ~$16,813 | ~$17,775 |
-| Average selling price | ~$170 | ~$190 |
-| Average sell-through | ~98.5% | ~92.0% |
-| Sell-out rate | ~68% | ~16% |
+
+| Metric                | Q-Learning (table) | DQN (neural network) |
+| --------------------- | ------------------ | -------------------- |
+| Average total revenue | ~$16,758           | **~$17,448**         |
+| Median total revenue  | ~$16,813           | ~$17,775             |
+| Average selling price | ~$170              | ~$190                |
+| Average sell-through  | ~98.5%             | ~92.0%               |
+| Sell-out rate         | ~68%               | ~16%                 |
+
 
 Reading the full continuous state, the DQN learned a higher-price strategy that earns a few percent more revenue on average, accepting a few more unsold seats instead of discounting to sell everything. Q-learning is more conservative and sells through more reliably.
 
@@ -133,6 +136,8 @@ Regenerate all metrics and charts:
 ```
 
 ---
+
+
 
 ## Structure
 
@@ -159,9 +164,11 @@ rl-ticket-pricing/
 
 Testing and CI: `pytest` covers the environment rules, demand model, and both agents; a GitHub Actions workflow runs the suite automatically on every push.
 
-For a detailed account of how this project was extended toward the RBC Borealis ML Software Engineer role, see [`PROJECT_CHANGES.md`](PROJECT_CHANGES.md).
+For a detailed account of how this project was extended toward the RBC Borealis ML Software Engineer role, see `[PROJECT_CHANGES.md](PROJECT_CHANGES.md)`.
 
 ---
+
+
 
 ## Limitations
 
@@ -170,9 +177,12 @@ For a detailed account of how this project was extended toward the RBC Borealis 
 - Discrete prices and, for Q-learning, coarse state bins
 - Single event / single product
 
+
+
 ## Next steps
 
 - Find a better source of real training data to calibrate the demand model.
 - Move from discrete price levels to continuous pricing (e.g. a policy-gradient or actor-critic method), since real prices are not limited to seven fixed values.
 - Extend to multi-tier seating or multiple events sharing inventory.
 - Add big-data tooling (Spark/SQL) to process larger historical datasets.
+

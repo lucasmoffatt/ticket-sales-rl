@@ -1,4 +1,4 @@
-"""Plotting helpers for Q-learning training and evaluation."""
+"""Training and evaluation plots."""
 
 from visualization.plots import (
     plot_cumulative_revenue,

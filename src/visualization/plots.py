@@ -1,9 +1,4 @@
-"""
-Plotly visualizations for Q-learning training and pricing behavior.
-
-The pricing-policy heatmap is especially important: it shows what price the
-agent prefers as a function of inventory and time remaining.
-"""
+"""Plotly charts for training and evaluation results."""
 
 from __future__ import annotations
 
@@ -24,7 +19,7 @@ def plot_training_rewards(
     title: str = "Q-Learning training reward over episodes",
     window: int = 50,
 ) -> go.Figure:
-    """RL training curve with optional moving average."""
+    """Plot episode rewards and an optional moving average."""
     episodes = np.arange(1, len(rewards) + 1)
     fig = go.Figure()
     fig.add_trace(
@@ -59,7 +54,7 @@ def plot_training_rewards(
 
 
 def plot_revenue_summary(results: Sequence[EpisodeResult]) -> go.Figure:
-    """Bar chart of average total revenue for the Q-learning agent."""
+    """Plot average revenue and standard deviation by strategy."""
     summary = summarize_results(results)
     fig = px.bar(
         summary,
@@ -131,11 +126,7 @@ def plot_cumulative_revenue(trace: EpisodeTrace) -> go.Figure:
 
 
 def plot_policy_heatmap(agent: QLearningAgent) -> go.Figure:
-    """
-    Preferred ticket price for each (inventory bin × time bin).
-
-    Rows = inventory remaining category, columns = time remaining category.
-    """
+    """Plot the preferred price for each inventory and time bin."""
     inventory_order = list(agent.INVENTORY_BINS)
     time_order = list(agent.TIME_BINS)
 
@@ -186,5 +177,5 @@ def plot_revenue_distribution(results: Sequence[EpisodeResult]) -> go.Figure:
 
 
 def save_figure(fig: go.Figure, path: str) -> None:
-    """Save a Plotly figure as HTML (no kaleido dependency required)."""
+    """Write a Plotly figure to an HTML file."""
     fig.write_html(path, include_plotlyjs="cdn")
